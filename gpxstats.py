@@ -219,7 +219,7 @@ def printResults(rows):
 
 def printTotals(rows):
     """Print the rows in a formatted table."""
-    colwidth=25
+    colwidth=30
     for row in rows:
         print("{} {}".format(f"GPX File count:".ljust(colwidth), f"{row['File count']:.2f}"), 
         "{} {}".format(f"Track count:".ljust(colwidth), f"{row['Track count']:.2f}"), 
