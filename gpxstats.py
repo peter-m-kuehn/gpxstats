@@ -52,6 +52,7 @@ class GPXFileStatsRecord:
 
 DEFAULT_TIMEZONE = 'Europe/Berlin'
 DEFAULT_MIN_MPS = 0.1
+DEFAULT_MAX_PLAUSIBLE_MPS = 28.0
 DEFAULT_GEODESIC_DISTANCE_CALC_METHOD = '2d'  # Options: '2d', '3d'
 
 def gpx_files(value):
