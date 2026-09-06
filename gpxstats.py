@@ -357,7 +357,7 @@ def main():
         type=float,
         required=False,
         default=DEFAULT_MIN_MPS,
-        help="minimum meters per second for moving time calculation (default: 0.9 m/s)",
+        help="minimum meters per second for moving time calculation (default: {DEFAULT_MIN_MPS} m/s)",
     )
     parser.add_argument(
         "-t",
