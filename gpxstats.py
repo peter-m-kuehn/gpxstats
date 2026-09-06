@@ -256,7 +256,7 @@ def fix_columns(results):
      }, inplace=True)
      for col in results.columns:
        if col in ['Activity Time', 'Moving Time', 'Break Time']:
-            results[col] = results[col].apply(lambda x: pd.Timedelta(seconds=x))
+            results[col] = results[col].apply(lambda x: pd.Timedelta(seconds=x, microseconds=0))
        elif col in ['Start Time', 'End Time']:
             results[col] = results[col].apply(lambda x: pd.to_datetime(x).strftime('%Y-%m-%d %H:%M:%S'))
        elif col in ['Distance (km)', 'Max Speed (km/h)', 'Avg Speed (km/h)', 'Elevation Gain (m)', 'Max Height (m)', 'Elevation Loss (m)']:
@@ -296,9 +296,9 @@ def process_results(gpxFileList, args):
                  "Total distance (km)": round(results['distance_km'].sum(), 2),       
                  "Total minimum start time": results['start_time'].dt.strftime("%H:%M:%S").min(),
                  "Total maximum end time": results['end_time'].dt.strftime("%H:%M:%S").max(),   
-                 "Total activity time": datetime.timedelta(seconds=results['activity_time_s'].sum()),
-                 "Total moving time": datetime.timedelta(seconds=results['moving_time_s'].sum()),       
-                 "Total break time": datetime.timedelta(seconds=results['break_time_s'].sum()),
+                 "Total activity time": datetime.timedelta(seconds=results['activity_time_s'].sum(), microseconds=0),
+                 "Total moving time": datetime.timedelta(seconds=results['moving_time_s'].sum(), microseconds=0),       
+                 "Total break time": datetime.timedelta(seconds=results['break_time_s'].sum(), microseconds=0),
                  "Total maximum speed (km/h)": round(results['maximum_speed_kmph'].max(), 2),
                  "Total average speed (km/h)": round(results['average_speed_kmph'].mean(), 2),
                  "Total elevation gain (m)": round(results['elevation_gain_m'].sum(), 2),
