@@ -148,9 +148,12 @@ def calculate_track_statistics(gpxPoints, gpxTrackStatsRecord, args):
         df['delta_geo3d'] = delta_geo3d
         df['inst_mps'] = df['delta_geo3d'] / df['delta_time']
 
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
+    df.dropna(subset=["inst_mps"], how="all", inplace=True)
+
     df_moving = df[df['inst_mps'] >= args.MinMPS]
     avg_mov_mps = (sum((df_moving['inst_mps'] * df_moving['delta_time'])) / sum(df_moving['delta_time']))
-    gpxTrackStatsRecord.track_maximum_speed = df['inst_mps'].max(axis=0)
+    gpxTrackStatsRecord.track_maximum_speed = df[df['inst_mps'] <= DEFAULT_MAX_PLAUSIBLE_MPS]['inst_mps'].max(axis=0)
     gpxTrackStatsRecord.track_average_speed = avg_mov_mps
     gpxTrackStatsRecord.track_moving_time = datetime.timedelta(seconds=sum(df_moving['delta_time']))
     gpxTrackStatsRecord.track_break_time = datetime.timedelta(seconds=gpxTrackStatsRecord.track_activity_time.total_seconds() - gpxTrackStatsRecord.track_moving_time.total_seconds())
