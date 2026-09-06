@@ -124,3 +124,7 @@ Avg Speed (km/h):         6.92
 Elevation Gain (m):       1551.73
 Elevation Loss (m):       -1455.05
 Max Height (m):           1797.22
+
+# standalone MS-Windows binary distribution in dist folder
+
+just copy the dist folder to your local computer and run there gpxstats.exe...
