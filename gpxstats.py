@@ -3,6 +3,7 @@ import sys
 import os
 import glob
 import gpxpy
+from networkx import display
 import pandas as pd
 import numpy as np
 from geopy import distance
@@ -10,6 +11,12 @@ from math import sqrt, floor
 import datetime
 import pytz
 from dataclasses import dataclass, field
+from enum import Enum
+
+class VerticalDirection(Enum):
+    UP = 1
+    DOWN = -1
+    FLAT = 0
 
 @dataclass
 class GPXStatsRecord:
@@ -44,6 +51,15 @@ class GPXTrackStatsRecord:
     track_elevation_gain: float = 0.0
     track_maximum_height: float = 0.0
     track_elevation_loss: float = 0.0   
+    track_dist_slope_gt_25: float = 0.0
+    track_dist_slope_gt_20: float = 0.0
+    track_dist_slope_gt_15: float = 0.0
+    track_dist_slope_gt_10: float = 0.0
+    track_dist_slope_0_10: float = 0.0
+    track_dist_slope_lt_0: float = 0.0
+    track_dist_slope_lt_minus_10: float = 0.0
+    track_dist_slope_lt_minus_20: float = 0.0
+    track_dist_slope_lt_minus_30: float = 0.0
 
 @dataclass
 class GPXFileStatsRecord:
@@ -53,7 +69,23 @@ class GPXFileStatsRecord:
 DEFAULT_TIMEZONE = 'Europe/Berlin'
 DEFAULT_MIN_MPS = 0.1
 DEFAULT_MAX_PLAUSIBLE_MPS = 28.0
-DEFAULT_GEODESIC_DISTANCE_CALC_METHOD = '2d'  # Options: '2d', '3d'
+DEFAULT_GEODESIC_DISTANCE_CALC_METHOD = '3d'  # Options: '2d', '3d'
+DEFAULT_MIN_DELTA_DISTANCE = 10.0  # Minimum distance in meters to consider for slope calculations
+DEFAULT_MIN_DISTANCE_FOR_SLOPE_CALCULATION = 10.0  # Minimum distance in meters to consider for slope calculations
+
+def get_vertical_direction(delta_elev):
+    if delta_elev > 0:
+        return VerticalDirection.UP
+    elif delta_elev < 0:
+        return VerticalDirection.DOWN
+    else:
+        return VerticalDirection.FLAT
+
+def positive_float(val):
+    f = float(val)
+    if f <= 0:
+        raise argparse.ArgumentTypeError("Value must be greater than zero.")
+    return f
 
 def gpx_files(value):
     """Check if the provided value is a valid GPX file."""
@@ -95,11 +127,125 @@ def process_gpx_files(args, files, gpxFileList):
 
         process_gpx(gpx, file_path, args, gpxFileList)
 
+def elevation_difference(point1, point2):
+    """Calculate the elevation difference between two GPX points."""
+    return point2.elevation - point1.elevation
+
+def distance_between_points(point1, point2, calc_method='2d'):
+    """Calculate the distance between two GPX points using geodesic method."""
+    temp_delta_geo2d = distance.distance((point1.latitude, point1.longitude), (point2.latitude, point2.longitude)).m
+    if (calc_method == '2d'):
+        return temp_delta_geo2d
+    else:
+        # Calculate 3D distance (including elevation)
+        temp_delta_geo3d = np.sqrt(temp_delta_geo2d**2 + (elevation_difference(point1, point2))**2)
+        return temp_delta_geo3d
+
+# Calculate slope between points based on distance and elevation change
+# Find sections in delta_ele where the vertical direction is UP or DOWN and calculate slope if the distance is greater or equal to min_distance
+# Sections with FLAT vertical direction are ignored and slope is set to None
+# Also, if slope is calculated, the distance for that slope is stored in slopedist, otherwise None is stored in slopedist
+def calculate_slope_distances(delta_dist, delta_ele, min_distance, gpxTrackStatsRecord):
+    n = len(delta_dist) - 1
+    i = 1
+    dist_slope_gt_25 = 0
+    dist_slope_gt_20 = 0
+    dist_slope_gt_15 = 0
+    dist_slope_gt_10 = 0
+    dist_slope_lt_0 = 0
+    dist_slope_lt_minus_10 = 0
+    dist_slope_lt_minus_20 = 0
+    dist_slope_lt_minus_30 = 0
+
+    slope = [None]          # slope between records
+    slopedist = [None]      # distance between records with calculated slope
+
+    while i <= n:
+        # set i to start position with vertical direction UP or DOWN
+ 
+        while True:
+            if i > n:
+                break
+            
+            verticalDirection = get_vertical_direction(delta_ele[i])
+            if verticalDirection == VerticalDirection.FLAT:
+                 i += 1
+            else:
+                break
+            
+        if i > n:
+                break
+            
+        # init variables on start position
+        j = i
+        sum_delta_dist = 0
+        sum_delta_ele = 0
+        
+        # advance cursor j as long j <= n and sum_delta_dist < min_distance
+        # and verticalDirection does not change
+        while True:
+            if j > n:
+                break
+            
+            sum_delta_dist += delta_dist[j]
+            sum_delta_ele += delta_ele[j]
+            
+            if sum_delta_dist >= min_distance and get_vertical_direction(delta_ele[j]) == verticalDirection:
+                slope.append(100 * sum_delta_ele / sum_delta_dist)
+                slopedist.append(sum_delta_dist)
+                j += 1
+                break
+            elif get_vertical_direction(delta_ele[j]) == verticalDirection:
+                j += 1
+            elif get_vertical_direction(delta_ele[j]) == VerticalDirection.FLAT: # turning point
+                j += 1
+                break
+            else: # reverse direction
+                break
+                
+        # last statements in outer loop
+        i = j
+
+    # calculate slope distance statistics
+    for i in range(len(slope)):
+        if slope[i] is None:
+            pass
+        elif slope[i] > 25:
+            dist_slope_gt_25 += slopedist[i]
+        elif slope[i] > 20:
+            dist_slope_gt_20 += slopedist[i]
+        elif slope[i] > 15:
+            dist_slope_gt_15 += slopedist[i]
+        elif slope[i] > 10:
+            dist_slope_gt_10 += slopedist[i]
+        elif slope[i] < -30:
+            dist_slope_lt_minus_30 += slopedist[i]
+        elif slope[i] < -20:
+            dist_slope_lt_minus_20 += slopedist[i]
+        elif slope[i] < -10:
+            dist_slope_lt_minus_10 += slopedist[i]
+        elif slope[i] < 0:
+            dist_slope_lt_0 += slopedist[i]
+        else:
+            pass
+
+    gpxTrackStatsRecord.track_dist_slope_gt_25 = dist_slope_gt_25
+    gpxTrackStatsRecord.track_dist_slope_gt_20 = dist_slope_gt_20
+    gpxTrackStatsRecord.track_dist_slope_gt_15 = dist_slope_gt_15 
+    gpxTrackStatsRecord.track_dist_slope_gt_10 = dist_slope_gt_10
+    gpxTrackStatsRecord.track_dist_slope_lt_0 = dist_slope_lt_0
+    gpxTrackStatsRecord.track_dist_slope_lt_minus_10 = dist_slope_lt_minus_10
+    gpxTrackStatsRecord.track_dist_slope_lt_minus_20 = dist_slope_lt_minus_20
+    gpxTrackStatsRecord.track_dist_slope_lt_minus_30 = dist_slope_lt_minus_30
+    gpxTrackStatsRecord.track_dist_slope_0_10 = gpxTrackStatsRecord.track_distance - (gpxTrackStatsRecord.track_dist_slope_gt_25 + gpxTrackStatsRecord.track_dist_slope_gt_20 + gpxTrackStatsRecord.track_dist_slope_gt_15 + gpxTrackStatsRecord.track_dist_slope_gt_10 + dist_slope_lt_0 + dist_slope_lt_minus_10 + dist_slope_lt_minus_20 + dist_slope_lt_minus_30)
+
+    return
+                    
+
 def calculate_track_statistics(gpxPoints, gpxTrackStatsRecord, args):
     delta_elev = [0]    # change in elevation between records
     delta_time = [0]    # time interval between records
-    delta_geo2d = [0]   # segment distance from geodesic method only
-    delta_geo3d = [0]   # segment distance from geodesic method, adjusted for elevation
+    delta_geo  = [0]   # segment distance from geodesic method only
     df = pd.DataFrame(columns=['lon', 'lat', 'elev', 'time'])
 
     for point in gpxPoints:
@@ -113,23 +259,17 @@ def calculate_track_statistics(gpxPoints, gpxTrackStatsRecord, args):
         end = gpxPoints[idx]
 
         # elevation
-        temp_delta_elev = end.elevation - start.elevation
-        delta_elev.append(temp_delta_elev)
+        delta_elev.append(elevation_difference(start, end))
 
         # time
         temp_delta_time = (end.time - start.time).total_seconds()
         delta_time.append(temp_delta_time)
 
         # distance from geodesic model
-        temp_delta_geo2d = distance.distance((start.latitude, start.longitude), (end.latitude, end.longitude)).m
+        dist = distance_between_points(start, end, args.geodesic_calc_method.lower())
 
-        if (args.geodesic_calc_method.lower() == '2d'):
-            delta_geo2d.append(temp_delta_geo2d)
-            gpxTrackStatsRecord.track_distance += temp_delta_geo2d
-        else:
-            temp_delta_geo3d = sqrt(temp_delta_geo2d**2 + temp_delta_elev**2)
-            delta_geo3d.append(temp_delta_geo3d)
-            gpxTrackStatsRecord.track_distance += temp_delta_geo3d
+        delta_geo.append(dist)
+        gpxTrackStatsRecord.track_distance += dist
 
     gpxTrackStatsRecord.track_activity_time = datetime.timedelta(seconds=sum(delta_time))
     gpxTrackStatsRecord.track_elevation_gain = sum([e for e in delta_elev if e > 0])
@@ -139,18 +279,20 @@ def calculate_track_statistics(gpxPoints, gpxTrackStatsRecord, args):
     gpxTrackStatsRecord.track_start_time = temp_start_time.tz_convert(args.timezone)
     temp_end_time = pd.to_datetime(gpxPoints[-1].time, errors='coerce')
     gpxTrackStatsRecord.track_end_time = temp_end_time.tz_convert(args.timezone)
+
     df['delta_time'] = delta_time
-
-    if (args.geodesic_calc_method.lower() == '2d'):
-        df['delta_geo2d'] = delta_geo2d 
-        df['inst_mps'] = df['delta_geo2d'] / df['delta_time']
-    else:
-        df['delta_geo3d'] = delta_geo3d
-        df['inst_mps'] = df['delta_geo3d'] / df['delta_time']
-
+    df["delta_elev"] = delta_elev
+    calculate_slope_distances(delta_geo, delta_elev, args.MinDistanceForSlopeCalculation, gpxTrackStatsRecord)
+    # df['slope'] = slope
+    # df['slopedist'] = slopedist
+ 
+    df['delta_geo'] = delta_geo 
+    df['inst_mps'] = df['delta_geo'] / df['delta_time']
+ 
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     df.dropna(subset=["inst_mps"], how="all", inplace=True)
-
+    with pd.option_context('display.max_rows', None, 'display.max_columns', 0):  # more options can be specified also
+        print(df)
     df_moving = df[df['inst_mps'] >= args.MinMPS]
     avg_mov_mps = (sum((df_moving['inst_mps'] * df_moving['delta_time'])) / sum(df_moving['delta_time']))
     gpxTrackStatsRecord.track_maximum_speed = df[df['inst_mps'] <= DEFAULT_MAX_PLAUSIBLE_MPS]['inst_mps'].max(axis=0)
@@ -219,6 +361,15 @@ def printResults(rows):
         "{} {}".format(f"Elevation Gain (m):".ljust(colwidth), f"{row['elevation_gain_m']:.2f}"), 
         "{} {}".format(f"Elevation Loss (m):".ljust(colwidth), f"{row['elevation_loss_m']:.2f}"),
         "{} {}".format(f"Max Height (m):".ljust(colwidth), f"{row['maximum_height_m']:.2f}"), 
+        "{} {}".format(f"Distance (km) Slope > 25%:".ljust(colwidth), f"{row['dist_slope_gt_25_km']:.2f} ({row['dist_slope_gt_25_km_percent']:.2f}%)"),
+        "{} {}".format(f"Distance (km) Slope > 20%:".ljust(colwidth), f"{row['dist_slope_gt_20_km']:.2f} ({row['dist_slope_gt_20_km_percent']:.2f}%)"),
+        "{} {}".format(f"Distance (km) Slope > 15%:".ljust(colwidth), f"{row['dist_slope_gt_15_km']:.2f} ({row['dist_slope_gt_15_km_percent']:.2f}%)"),
+        "{} {}".format(f"Distance (km) Slope > 10%:".ljust(colwidth), f"{row['dist_slope_gt_10_km']:.2f} ({row['dist_slope_gt_10_km_percent']:.2f}%)"),
+        "{} {}".format(f"Distance (km) Slope 0-10%:".ljust(colwidth), f"{row['dist_slope_0_10_km']:.2f} ({row['dist_slope_0_10_km_percent']:.2f}%)"),
+        "{} {}".format(f"Distance (km) Slope < 0%:".ljust(colwidth), f"{row['dist_slope_lt_0_km']:.2f} ({row['dist_slope_lt_0_km_percent']:.2f}%)"),
+        "{} {}".format(f"Distance (km) Slope < -10%:".ljust(colwidth), f"{row['dist_slope_lt_minus_10_km']:.2f} ({row['dist_slope_lt_minus_10_km_percent']:.2f}%)"),
+        "{} {}".format(f"Distance (km) Slope < -20%:".ljust(colwidth), f"{row['dist_slope_lt_minus_20_km']:.2f} ({row['dist_slope_lt_minus_20_km_percent']:.2f}%)"),
+        "{} {}".format(f"Distance (km) Slope < -30%:".ljust(colwidth), f"{row['dist_slope_lt_minus_30_km']:.2f} ({row['dist_slope_lt_minus_30_km_percent']:.2f}%)"),
         sep='\n', end='\n\n')
 
 def printTotals(rows):
@@ -256,14 +407,23 @@ def fix_columns(results):
         "average_speed_kmph": "Avg Speed (km/h)",
         "elevation_gain_m": "Elevation Gain (m)",
         "elevation_loss_m": "Elevation Loss (m)",
-        "maximum_height_m": "Max Height (m)"
+        "maximum_height_m": "Max Height (m)",
+        "dist_slope_gt_25_km": "Distance (km) Slope > 25%",
+        "dist_slope_gt_20_km": "Distance (km) Slope > 20%",
+        "dist_slope_gt_15_km": "Distance (km) Slope > 15%",
+        "dist_slope_gt_10_km": "Distance (km) Slope > 10%",
+        "dist_slope_0_10_km": "Distance (km) Slope 0-10%",
+        "dist_slope_lt_0_km": "Distance (km) Slope < 0%",
+        "dist_slope_lt_minus_10_km": "Distance (km) Slope < -10%",
+        "dist_slope_lt_minus_20_km": "Distance (km) Slope < -20%",
+        "dist_slope_lt_minus_30_km": "Distance (km) Slope < -30%"
      }, inplace=True)
      for col in results.columns:
        if col in ['Activity Time', 'Moving Time', 'Break Time']:
             results[col] = results[col].apply(lambda x: pd.Timedelta(seconds=x, microseconds=0))
        elif col in ['Start Time', 'End Time']:
             results[col] = results[col].apply(lambda x: pd.to_datetime(x).strftime('%Y-%m-%d %H:%M:%S'))
-       elif col in ['Distance (km)', 'Max Speed (km/h)', 'Avg Speed (km/h)', 'Elevation Gain (m)', 'Max Height (m)', 'Elevation Loss (m)']:
+       elif col in ['Distance (km)', 'Max Speed (km/h)', 'Avg Speed (km/h)', 'Elevation Gain (m)', 'Max Height (m)', 'Elevation Loss (m)', 'Distance (km) Slope > 25%', 'Distance (km) Slope > 20%', 'Distance (km) Slope > 15%', 'Distance (km) Slope > 10%', 'Distance (km) Slope 0-10%', 'Distance (km) Slope < 0%', 'Distance (km) Slope < -10%', 'Distance (km) Slope < -20%', 'Distance (km) Slope < -30%']:
             results[col] = results[col].apply(lambda x: round(x, 2))
 
 def process_results(gpxFileList, args):
@@ -291,6 +451,24 @@ def process_results(gpxFileList, args):
                 "elevation_gain_m": track.track_elevation_gain,
                 "elevation_loss_m": track.track_elevation_loss,
                 "maximum_height_m": track.track_maximum_height,
+                "dist_slope_gt_25_km": track.track_dist_slope_gt_25 / 1000.0,   
+                "dist_slope_gt_25_km_percent": track.track_dist_slope_gt_25 * 100 / track.track_distance,               
+                "dist_slope_gt_20_km": track.track_dist_slope_gt_20 / 1000.0,
+                "dist_slope_gt_20_km_percent": track.track_dist_slope_gt_20 * 100 / track.track_distance,
+                "dist_slope_gt_15_km": track.track_dist_slope_gt_15 / 1000.0,
+                "dist_slope_gt_15_km_percent": track.track_dist_slope_gt_15 * 100 / track.track_distance,
+                "dist_slope_gt_10_km": track.track_dist_slope_gt_10 / 1000.0,
+                "dist_slope_gt_10_km_percent": track.track_dist_slope_gt_10 * 100 / track.track_distance,
+                "dist_slope_0_10_km": track.track_dist_slope_0_10 / 1000.0,
+                "dist_slope_0_10_km_percent": track.track_dist_slope_0_10 * 100 / track.track_distance,
+                "dist_slope_lt_0_km": track.track_dist_slope_lt_0 / 1000.0,
+                "dist_slope_lt_0_km_percent": track.track_dist_slope_lt_0 * 100 / track.track_distance,
+                "dist_slope_lt_minus_10_km": track.track_dist_slope_lt_minus_10 / 1000.0,
+                "dist_slope_lt_minus_10_km_percent": track.track_dist_slope_lt_minus_10 * 100 / track.track_distance,
+                "dist_slope_lt_minus_20_km": track.track_dist_slope_lt_minus_20 / 1000.0,
+                "dist_slope_lt_minus_20_km_percent": track.track_dist_slope_lt_minus_20 * 100 / track.track_distance,
+                "dist_slope_lt_minus_30_km": track.track_dist_slope_lt_minus_30 / 1000.0,
+                "dist_slope_lt_minus_30_km_percent": track.track_dist_slope_lt_minus_30 * 100 / track.track_distance,
              })
 
     results = pd.DataFrame(rows)
@@ -358,11 +536,19 @@ def main():
     parser.add_argument(
         "-m",
         "--MinMPS",
-        type=float,
+        type=positive_float,
         required=False,
         default=DEFAULT_MIN_MPS,
         help="minimum meters per second for moving time calculation (default: {DEFAULT_MIN_MPS} m/s)",
     )
+    parser.add_argument(
+            "-md",
+            "--MinDistanceForSlopeCalculation",
+            type=positive_float,
+            required=False,
+            default=DEFAULT_MIN_DISTANCE_FOR_SLOPE_CALCULATION,
+            help="minimum distance in meters to consider for slope calculations (default: {DEFAULT_MIN_DISTANCE_FOR_SLOPE_CALCULATION} m)",
+        )
     parser.add_argument(
         "-t",
         "--timezone",
@@ -378,7 +564,7 @@ def main():
         required=False,
         default=DEFAULT_GEODESIC_DISTANCE_CALC_METHOD,
         choices=['2d', '3d', '2D', '3D'],
-        help="method for geodesic distance calculation: '2d' or '3d' (default: 2d)",
+        help="method for geodesic distance calculation: '2d' or '3d' (default: 3d)",
     )
     parser.add_argument(
             "-c",
@@ -416,6 +602,7 @@ def main():
         print(f"min_mps: {args.MinMPS}")
         print(f"timezone: {args.timezone}")
         print(f"geodesic_calc_method: {args.geodesic_calc_method}")
+        print(f"MinDistanceForSlopeCalculation: {args.MinDistanceForSlopeCalculation}")
         print(f"csv: {args.csv}")
         print(f"verbose: {args.verbose}")
         print(f"sumTotal: {args.sumTotal}")
