@@ -251,6 +251,7 @@ def calculate_track_statistics(gpxPoints, gpxTrackStatsRecord, args):
     for point in gpxPoints:
         df = pd.concat([df, pd.DataFrame({'lon' : [point.longitude], 'lat' : [point.latitude], 'elev' : [point.elevation], 'time' : [point.time]})], ignore_index=True)
 
+    
     df['time'] = pd.to_datetime(df['time'], errors='coerce')
     df['time'] = df['time'].dt.tz_convert(args.timezone)
         
@@ -271,7 +272,7 @@ def calculate_track_statistics(gpxPoints, gpxTrackStatsRecord, args):
         delta_geo.append(dist)
         gpxTrackStatsRecord.track_distance += dist
 
-    gpxTrackStatsRecord.track_activity_time = datetime.timedelta(seconds=sum(delta_time))
+    gpxTrackStatsRecord.track_activity_time = datetime.timedelta(seconds=sum(delta_time)) 
     gpxTrackStatsRecord.track_elevation_gain = sum([e for e in delta_elev if e > 0])
     gpxTrackStatsRecord.track_maximum_height = max([p.elevation for p in gpxPoints])
     gpxTrackStatsRecord.track_elevation_loss = sum([e for e in delta_elev if e < 0])
@@ -283,16 +284,14 @@ def calculate_track_statistics(gpxPoints, gpxTrackStatsRecord, args):
     df['delta_time'] = delta_time
     df["delta_elev"] = delta_elev
     calculate_slope_distances(delta_geo, delta_elev, args.MinDistanceForSlopeCalculation, gpxTrackStatsRecord)
-    # df['slope'] = slope
-    # df['slopedist'] = slopedist
  
     df['delta_geo'] = delta_geo 
     df['inst_mps'] = df['delta_geo'] / df['delta_time']
  
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
-    df.dropna(subset=["inst_mps"], how="all", inplace=True)
-    with pd.option_context('display.max_rows', None, 'display.max_columns', 0):  # more options can be specified also
-        print(df)
+    df.dropna(subset=["inst_mps"], how="all", inplace=True) 
+    # with pd.option_context('display.max_rows', None, 'display.max_columns', 0):  # more options can be specified also
+    #     print(df)
     df_moving = df[df['inst_mps'] >= args.MinMPS]
     avg_mov_mps = (sum((df_moving['inst_mps'] * df_moving['delta_time'])) / sum(df_moving['delta_time']))
     gpxTrackStatsRecord.track_maximum_speed = df[df['inst_mps'] <= DEFAULT_MAX_PLAUSIBLE_MPS]['inst_mps'].max(axis=0)
@@ -306,22 +305,53 @@ def process_gpx(gpx, file_path, args, gpxFileList):
     # Initialize statistics
     gpxFileStatsRecord = GPXFileStatsRecord()
     gpxFileStatsRecord.file_name = os.path.basename(file_path)
+    all_errors = []
+    validStructure = True
 
-    for track in gpx.tracks:
+    for track_index, track in enumerate(gpx.tracks):
        if args.verbose:
            print(f"\tProcessing track: {track.name if track.name else 'Unnamed Track'}...")  
        gpxTrackStatsRecord = GPXTrackStatsRecord()
        gpxTrackStatsRecord.track_name = track.name if track.name else "Unnamed Track"
        gpxPoints = []
-       for segment in track.segments:
-            for point in segment.points:
-                gpxPoints.append(point)
-
-       calculate_track_statistics(gpxPoints, gpxTrackStatsRecord, args)
+       for segment_index, segment in enumerate(track.segments):
+            for point_index, point in enumerate(segment.points):
+                validStructure = validate_trkpt(gpxFileStatsRecord.file_name, point, point_index, segment_index, track_index)
+                if validStructure:
+                    gpxPoints.append(point)
+                else:
+                    break
+            if not validate_trkpt:
+                break 
+       if not validate_trkpt:
+            break        
        
-       gpxFileStatsRecord.tracks.append(gpxTrackStatsRecord)
+       if validStructure:
+            calculate_track_statistics(gpxPoints, gpxTrackStatsRecord, args)      
+            gpxFileStatsRecord.tracks.append(gpxTrackStatsRecord)
 
-    gpxFileList.append(gpxFileStatsRecord)
+    
+    if validStructure:
+        gpxFileList.append(gpxFileStatsRecord)
+
+def validate_trkpt(file_name, trkpt, index, segment_index, track_index):   
+    if trkpt.latitude is None or trkpt.longitude is None:
+        print(f"Invalid file {file_name}: Missing lat/lon at track {track_index}, segment {segment_index}, point {index}\n")
+        return False
+    if not (-90 <= trkpt.latitude <= 90):
+        print(f"Invalid file {file_name}: Invalid latitude {trkpt.latitude} at track {track_index}, segment {segment_index}, point {index}\n")
+        return False
+    if not (-180 <= trkpt.longitude <= 180):
+        print(f"Invalid file {file_name}: Invalid longitude {trkpt.longitude} at track {track_index}, segment {segment_index}, point {index}\n")
+        return False
+    if trkpt.elevation is not None and not (-500 <= trkpt.elevation <= 10000):
+        print(f"Invalid file {file_name}: Suspicious elevation {trkpt.elevation}m at track {track_index}, segment {segment_index}, point {index}\n")
+        return False
+    if trkpt.time is None:
+        print(f"Invalid file {file_name}: Missing timestamp at track {track_index}, segment {segment_index}, point {index}\n")
+        return False
+
+    return True
 
 def process_gpx_directory(args, gpxFileList):
     """Process all GPX files in a directory, optionally recursively."""
@@ -389,6 +419,16 @@ def printTotals(rows):
         "{} {}".format(f"Total elevation gain (m):".ljust(colwidth), f"{row['Total elevation gain (m)']:.2f}"), 
         "{} {}".format(f"Total elevation loss (m):".ljust(colwidth), f"{row['Total elevation loss (m)']:.2f}"),
         "{} {}".format(f"Total maximum height (m):".ljust(colwidth), f"{row['Total maximum height (m)']:.2f}"), 
+        "{} {}".format(f"Total distance (km) Slope > 25%".ljust(colwidth), f"{row['Total distance (km) Slope > 25%']:.2f}"), 
+        "{} {}".format(f"Total distance (km) Slope > 20%".ljust(colwidth), f"{row['Total distance (km) Slope > 20%']:.2f}"),
+        "{} {}".format(f"Total distance (km) Slope > 15%".ljust(colwidth), f"{row['Total distance (km) Slope > 15%']:.2f}"),
+        "{} {}".format(f"Total distance (km) Slope > 10%".ljust(colwidth), f"{row['Total distance (km) Slope > 10%']:.2f}"),
+        "{} {}".format(f"Total distance (km) Slope 0-10%".ljust(colwidth), f"{row['Total distance (km) Slope 0-10%']:.2f}"),
+        "{} {}".format(f"Total distance (km) Slope < 0%".ljust(colwidth), f"{row['Total distance (km) Slope < 0%']:.2f}"),
+        "{} {}".format(f"Total distance (km) Slope < -10%".ljust(colwidth), f"{row['Total distance (km) Slope < -10%']:.2f}"),
+        "{} {}".format(f"Total distance (km) Slope < -20%".ljust(colwidth), f"{row['Total distance (km) Slope < -20%']:.2f}"),
+        "{} {}".format(f"Total distance (km) Slope < -30%".ljust(colwidth), f"{row['Total distance (km) Slope < -30%']:.2f}"),
+
         sep='\n', end='\n\n')
 
 def fix_columns(results):
@@ -416,14 +456,26 @@ def fix_columns(results):
         "dist_slope_lt_0_km": "Distance (km) Slope < 0%",
         "dist_slope_lt_minus_10_km": "Distance (km) Slope < -10%",
         "dist_slope_lt_minus_20_km": "Distance (km) Slope < -20%",
-        "dist_slope_lt_minus_30_km": "Distance (km) Slope < -30%"
+        "dist_slope_lt_minus_30_km": "Distance (km) Slope < -30%",
+        "dist_slope_gt_25_km_percent": "Distance percent (%) Slope > 25%",
+        "dist_slope_gt_20_km_percent": "Distance percent (%) Slope > 20%",
+        "dist_slope_gt_15_km_percent": "Distance percent (%) Slope > 15%",
+        "dist_slope_gt_10_km_percent": "Distance percent (%) Slope > 10%",
+        "dist_slope_0_10_km_percent": "Distance percent (%) Slope 0-10%",
+        "dist_slope_lt_0_km_percent": "Distance percent (%) Slope < 0%",
+        "dist_slope_lt_minus_10_km_percent": "Distance percent (%) Slope < -10%",
+        "dist_slope_lt_minus_20_km_percent": "Distance percent (%) Slope < -20%",
+        "dist_slope_lt_minus_30_km_percent": "Distance percent (%) Slope < -30%"
+
      }, inplace=True)
      for col in results.columns:
        if col in ['Activity Time', 'Moving Time', 'Break Time']:
             results[col] = results[col].apply(lambda x: pd.Timedelta(seconds=x, microseconds=0))
        elif col in ['Start Time', 'End Time']:
             results[col] = results[col].apply(lambda x: pd.to_datetime(x).strftime('%Y-%m-%d %H:%M:%S'))
-       elif col in ['Distance (km)', 'Max Speed (km/h)', 'Avg Speed (km/h)', 'Elevation Gain (m)', 'Max Height (m)', 'Elevation Loss (m)', 'Distance (km) Slope > 25%', 'Distance (km) Slope > 20%', 'Distance (km) Slope > 15%', 'Distance (km) Slope > 10%', 'Distance (km) Slope 0-10%', 'Distance (km) Slope < 0%', 'Distance (km) Slope < -10%', 'Distance (km) Slope < -20%', 'Distance (km) Slope < -30%']:
+       elif col in ['Distance (km)', 'Max Speed (km/h)', 'Avg Speed (km/h)', 'Elevation Gain (m)', 'Max Height (m)', 'Elevation Loss (m)', 'Distance (km) Slope > 25%', 'Distance (km) Slope > 20%', 'Distance (km) Slope > 15%', 'Distance (km) Slope > 10%', 'Distance (km) Slope 0-10%', 'Distance (km) Slope < 0%', 'Distance (km) Slope < -10%', 'Distance (km) Slope < -20%', 'Distance (km) Slope < -30%',
+                    'Distance percent (%) Slope > 25%', 'Distance percent (%) Slope > 20%', 'Distance percent (%) Slope > 15%', 'Distance percent (%) Slope > 10%',
+                    'Distance percent (%) Slope 0-10%', 'Distance percent (%) Slope < 0%', 'Distance percent (%) Slope < -10%', 'Distance percent (%) Slope < -20%', 'Distance percent (%) Slope < -30%']:
             results[col] = results[col].apply(lambda x: round(x, 2))
 
 def process_results(gpxFileList, args):
@@ -485,7 +537,16 @@ def process_results(gpxFileList, args):
                  "Total average speed (km/h)": round(results['average_speed_kmph'].mean(), 2),
                  "Total elevation gain (m)": round(results['elevation_gain_m'].sum(), 2),
                  "Total elevation loss (m)": round(results['elevation_loss_m'].sum(), 2),
-                 "Total maximum height (m)": round(results['maximum_height_m'].max(), 2)
+                 "Total maximum height (m)": round(results['maximum_height_m'].max(), 2),
+                 "Total distance (km) Slope > 25%": round(results['dist_slope_gt_25_km'].sum(), 2),
+                 "Total distance (km) Slope > 20%": round(results['dist_slope_gt_20_km'].sum(), 2),
+                 "Total distance (km) Slope > 15%": round(results['dist_slope_gt_15_km'].sum(), 2),
+                 "Total distance (km) Slope > 10%": round(results['dist_slope_gt_10_km'].sum(), 2),
+                 "Total distance (km) Slope 0-10%": round(results['dist_slope_0_10_km'].sum(), 2),
+                 "Total distance (km) Slope < 0%": round(results['dist_slope_lt_0_km'].sum(), 2),
+                 "Total distance (km) Slope < -10%": round(results['dist_slope_lt_minus_10_km'].sum(), 2),
+                 "Total distance (km) Slope < -20%": round(results['dist_slope_lt_minus_20_km'].sum(), 2),
+                 "Total distance (km) Slope < -30%": round(results['dist_slope_lt_minus_30_km'].sum(), 2)
         }
         total = pd.DataFrame(totals, index=[0])
         
