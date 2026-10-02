@@ -70,8 +70,7 @@ DEFAULT_TIMEZONE = 'Europe/Berlin'
 DEFAULT_MIN_MPS = 0.1
 DEFAULT_MAX_PLAUSIBLE_MPS = 28.0
 DEFAULT_GEODESIC_DISTANCE_CALC_METHOD = '3d'  # Options: '2d', '3d'
-DEFAULT_MIN_DELTA_DISTANCE = 10.0  # Minimum distance in meters to consider for slope calculations
-DEFAULT_MIN_DISTANCE_FOR_SLOPE_CALCULATION = 10.0  # Minimum distance in meters to consider for slope calculations
+DEFAULT_MIN_DISTANCE_FOR_SLOPE_CALCULATION = 20.0  # Minimum distance in meters to consider for slope calculations
 
 def get_vertical_direction(delta_elev):
     if delta_elev > 0:
@@ -600,7 +599,7 @@ def main():
         type=positive_float,
         required=False,
         default=DEFAULT_MIN_MPS,
-        help="minimum meters per second for moving time calculation (default: {DEFAULT_MIN_MPS} m/s)",
+        help=f"minimum meters per second for moving time calculation (default: {DEFAULT_MIN_MPS} m/s)",
     )
     parser.add_argument(
             "-md",
@@ -608,7 +607,7 @@ def main():
             type=positive_float,
             required=False,
             default=DEFAULT_MIN_DISTANCE_FOR_SLOPE_CALCULATION,
-            help="minimum distance in meters to consider for slope calculations (default: {DEFAULT_MIN_DISTANCE_FOR_SLOPE_CALCULATION} m)",
+            help=f"minimum distance in meters to consider for slope calculations (default: {DEFAULT_MIN_DISTANCE_FOR_SLOPE_CALCULATION} m)",
         )
     parser.add_argument(
         "-t",
@@ -616,7 +615,7 @@ def main():
         type=existing_timezone,
         required=False,
         default=DEFAULT_TIMEZONE,
-        help="timezone for date/time calculations (default: Europe/Berlin)",
+        help=f"timezone for date/time calculations (default: {DEFAULT_TIMEZONE})",
     )
     parser.add_argument(
         "-g",
@@ -625,7 +624,7 @@ def main():
         required=False,
         default=DEFAULT_GEODESIC_DISTANCE_CALC_METHOD,
         choices=['2d', '3d', '2D', '3D'],
-        help="method for geodesic distance calculation: '2d' or '3d' (default: 3d)",
+        help=f"method for geodesic distance calculation: '2d' or '3d' (default: {DEFAULT_GEODESIC_DISTANCE_CALC_METHOD})",
     )
     parser.add_argument(
             "-c",
