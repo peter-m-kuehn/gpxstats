@@ -71,6 +71,7 @@ DEFAULT_MIN_MPS = 0.1
 DEFAULT_MAX_PLAUSIBLE_MPS = 28.0
 DEFAULT_GEODESIC_DISTANCE_CALC_METHOD = '3d'  # Options: '2d', '3d'
 DEFAULT_MIN_DISTANCE_FOR_SLOPE_CALCULATION = 20.0  # Minimum distance in meters to consider for slope calculations
+DEFAULT_ELEVATION_NOISE_THRESHOLD = 5.0  # Elevation change threshold in meters to consider GPS noise
 
 def get_vertical_direction(delta_elev):
     if delta_elev > 0:
@@ -84,6 +85,12 @@ def positive_float(val):
     f = float(val)
     if f <= 0:
         raise argparse.ArgumentTypeError("Value must be greater than zero.")
+    return f
+
+def sgn_positive_float(val):
+    f = float(val)
+    if f < 0:
+        raise argparse.ArgumentTypeError("Value must be greater or equal to zero.")
     return f
 
 def gpx_files(value):
@@ -139,6 +146,33 @@ def distance_between_points(point1, point2, calc_method='2d'):
         # Calculate 3D distance (including elevation)
         temp_delta_geo3d = np.sqrt(temp_delta_geo2d**2 + (elevation_difference(point1, point2))**2)
         return temp_delta_geo3d
+
+
+def calc_elevation_gain_loss(gpx_points, noise_threshold=0.0):
+    """Sum only positive elevation changes that exceed GPS noise threshold."""
+    if len(gpx_points) < 2:
+        return 0.0
+
+    ascend = 0.0
+    descend = 0.0
+    reference_elev = None
+
+    for point in gpx_points:
+        if point.elevation is None:
+            continue
+        if reference_elev is None:
+            reference_elev = point.elevation
+            continue
+
+        delta = point.elevation - reference_elev
+        if delta >= noise_threshold:
+            ascend += delta
+            reference_elev = point.elevation
+        elif delta <= -noise_threshold:
+            descend += -delta
+            reference_elev = point.elevation
+
+    return (ascend, descend)
 
 # Calculate slope between points based on distance and elevation change
 # Find sections in delta_ele where the vertical direction is UP or DOWN and calculate slope if the distance is greater or equal to min_distance
@@ -272,9 +306,12 @@ def calculate_track_statistics(gpxPoints, gpxTrackStatsRecord, args):
         gpxTrackStatsRecord.track_distance += dist
 
     gpxTrackStatsRecord.track_activity_time = datetime.timedelta(seconds=sum(delta_time)) 
-    gpxTrackStatsRecord.track_elevation_gain = sum([e for e in delta_elev if e > 0])
+    if args.SuppressGPSNoise > 0:
+        gpxTrackStatsRecord.track_elevation_gain, gpxTrackStatsRecord.track_elevation_loss = calc_elevation_gain_loss(gpxPoints, args.SuppressGPSNoise)
+    else:
+        gpxTrackStatsRecord.track_elevation_gain = sum([e for e in delta_elev if e > 0])
+        gpxTrackStatsRecord.track_elevation_loss = sum([e for e in delta_elev if e < 0])
     gpxTrackStatsRecord.track_maximum_height = max([p.elevation for p in gpxPoints])
-    gpxTrackStatsRecord.track_elevation_loss = sum([e for e in delta_elev if e < 0])
     temp_start_time = pd.to_datetime(gpxPoints[0].time, errors='coerce')
     gpxTrackStatsRecord.track_start_time = temp_start_time.tz_convert(args.timezone)
     temp_end_time = pd.to_datetime(gpxPoints[-1].time, errors='coerce')
@@ -610,6 +647,16 @@ def main():
             help=f"minimum distance in meters to consider for slope calculations (default: {DEFAULT_MIN_DISTANCE_FOR_SLOPE_CALCULATION} m)",
         )
     parser.add_argument(
+            "-sgn",
+            "--SuppressGPSNoise",
+            type=sgn_positive_float,
+            required=False,
+            const=DEFAULT_ELEVATION_NOISE_THRESHOLD,
+            default=0.0,
+            nargs='?',
+            help=f"minimum distance in meters to consider for total ascend/descend calculations (default: {DEFAULT_ELEVATION_NOISE_THRESHOLD} m)",
+            )
+    parser.add_argument(
         "-t",
         "--timezone",
         type=existing_timezone,
@@ -656,16 +703,27 @@ def main():
         sys.exit(1)
     if args.verbose:   
         print(f"Options:\n")     
-        print(f"files: {args.files}")
-        print(f"directory: {args.directory}")
-        print(f"recursive: {args.recursive}")
-        print(f"min_mps: {args.MinMPS}")
-        print(f"timezone: {args.timezone}")
-        print(f"geodesic_calc_method: {args.geodesic_calc_method}")
-        print(f"MinDistanceForSlopeCalculation: {args.MinDistanceForSlopeCalculation}")
-        print(f"csv: {args.csv}")
+        if args.files:
+            print(f"files: {args.files}")
+        if args.directory:
+            print(f"directory: {args.directory}")
+        if args.recursive:
+            print(f"recursive: {args.recursive}")
+        if args.MinMPS:
+            print(f"min_mps: {args.MinMPS}")
+        if args.timezone:
+            print(f"timezone: {args.timezone}")
+        if args.geodesic_calc_method:
+            print(f"geodesic_calc_method: {args.geodesic_calc_method}")
+        if args.SuppressGPSNoise is not None:
+            print(f"SuppressGPSNoise: {args.SuppressGPSNoise}")
+        if args.MinDistanceForSlopeCalculation is not None:
+            print(f"MinDistanceForSlopeCalculation: {args.MinDistanceForSlopeCalculation}")
+        if args.csv:
+            print(f"csv: {args.csv}")
         print(f"verbose: {args.verbose}")
-        print(f"sumTotal: {args.sumTotal}")
+        if args.sumTotal:
+            print(f"sumTotal: {args.sumTotal}")
         print(f"\n\n")
 
     gpxFileList = list[GPXFileStatsRecord]()

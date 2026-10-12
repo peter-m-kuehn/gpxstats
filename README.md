@@ -2,7 +2,7 @@
 get some statistic infos from your gpx files
 
 gpxstats -h
-usage: gpxstats.py [-h] (-f FILES [FILES ...] | -d DIRECTORY) [-r] [-m MINMPS] [-md MINDISTANCEFORSLOPECALCULATION] [-t TIMEZONE] [-g {2d,3d,2D,3D}] [-c CSV] [-s] [-v]
+usage: gpxstats.py [-h] (-f FILES [FILES ...] | -d DIRECTORY) [-r] [-m MINMPS] [-md MINDISTANCEFORSLOPECALCULATION] [-sgn [SUPPRESSGPSNOISE]] [-t TIMEZONE] [-g {2d,3d,2D,3D}] [-c CSV] [-s] [-v]
 
 options:
   -h, --help            show this help message and exit
@@ -14,6 +14,8 @@ options:
   -m, --MinMPS MINMPS   minimum meters per second for moving time calculation (default: 0.1 m/s)
   -md, --MinDistanceForSlopeCalculation MINDISTANCEFORSLOPECALCULATION
                         minimum distance in meters to consider for slope calculations (default: 20.0 m)
+  -sgn, --SuppressGPSNoise [SUPPRESSGPSNOISE]
+                        minimum distance in meters to consider for total ascend/descend calculations (default: 5.0 m)                       
   -t, --timezone TIMEZONE
                         timezone for date/time calculations (default: Europe/Berlin)
   -g, --geodesic_calc_method {2d,3d,2D,3D}
@@ -33,6 +35,7 @@ recursive: False
 min_mps: 0.1
 timezone: Europe/Berlin
 geodesic_calc_method: 3d
+SuppressGPSNoise: 0.0
 MinDistanceForSlopeCalculation: 20.0
 csv: None
 verbose: True
@@ -81,6 +84,7 @@ recursive: False
 min_mps: 0.9
 timezone: Europe/Berlin
 geodesic_calc_method: 3d
+SuppressGPSNoise: 0.0
 MinDistanceForSlopeCalculation: 20.0
 csv: None
 verbose: True
@@ -163,6 +167,44 @@ Distance (km) Slope < -10%: 3.69 (17.43%)
 Distance (km) Slope < -20%: 0.51 (2.40%)
 Distance (km) Slope < -30%: 0.34 (1.58%)
 
+gpxstats.py -f "2026-10-07 17.15.25.gpx" -v -sgn
+
+Options:
+
+files: ['2026-10-07 17.15.25.gpx']
+min_mps: 0.1
+timezone: Europe/Berlin
+geodesic_calc_method: 3d
+SuppressGPSNoise: 5.0
+MinDistanceForSlopeCalculation: 20.0
+verbose: True
+
+
+
+Processing file: 2026-10-07 17.15.25.gpx...
+        Processing track: 2026-10-07 17:15:25...
+1.GPX-File:               2026-10-07 17.15.25.gpx
+1.Track:                  2026-10-07 17:15:25
+Distance (km):            36.53
+Start Time:               2026-10-07 09:25:23+02:00
+End Time:                 2026-10-07 17:15:24+02:00
+Activity Time:            7:50:01
+Moving Time:              6:13:44
+Break Time:               1:36:17
+Max Speed (km/h):         46.81
+Avg Speed (km/h):         5.82
+Elevation Gain (m):       1390.37
+Elevation Loss (m):       1389.69
+Max Height (m):           1085.01
+Distance (km) Slope > 25%: 0.05 (0.13%)
+Distance (km) Slope > 20%: 0.37 (1.02%)
+Distance (km) Slope > 15%: 1.43 (3.92%)
+Distance (km) Slope > 10%: 4.72 (12.92%)
+Distance (km) Slope 0-10%: 14.08 (38.54%)
+Distance (km) Slope < 0%: 9.81 (26.85%)
+Distance (km) Slope < -10%: 4.68 (12.81%)
+Distance (km) Slope < -20%: 1.25 (3.41%)
+Distance (km) Slope < -30%: 0.14 (0.39%)
 
 # Standalone MS-Windows binary distribution in dist folder (created with pyinstaller - see https://pyinstaller.org/en/stable/operating-mode.html)
 
